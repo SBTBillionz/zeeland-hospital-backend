@@ -50,7 +50,7 @@ app.post("/api/registerPatient", async (req, res) => {
     res.status(201).json({ message: "✅ Patient registered successfully", patient: newPatient });
   } catch (error) {
     console.error("Registration Error:", error);
-    res.status(500).json({ message: "❌ Server error" });
+    res.status(500).json({ message: "❌ Server error", "error": error });
   }
 });
 
