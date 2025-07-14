@@ -88,6 +88,31 @@ app.get("/api/patients", async (req, res) => {
   res.json(patients);
 });
 
+// ✅ Doctor Registration
+app.post("/api/registerDoctor", async (req, res) => {
+  const { name, email, password } = req.body;
+
+  if (!name || !email || !password) {
+    return res.status(400).json({ message: "All fields are required" });
+  }
+
+  try {
+    const exists = await Doctor.findOne({ email });
+    if (exists) {
+      return res.status(400).json({ message: "Doctor already registered" });
+    }
+
+    const doctor = new Doctor({ name, email, password });
+    await doctor.save();
+
+    res.status(201).json({ message: "Doctor registered", doctorEmail: doctor.email });
+  } catch (err) {
+    console.error("❌ Doctor registration error:", err.message);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+
 // ✅ DOCTOR ROUTES
 app.post("/api/registerDoctor", async (req, res) => {
   try {
