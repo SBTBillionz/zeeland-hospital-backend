@@ -114,18 +114,7 @@ app.post("/api/registerDoctor", async (req, res) => {
 
 
 // ✅ DOCTOR ROUTES
-app.post("/api/registerDoctor", async (req, res) => {
-  try {
-    const exists = await Doctor.findOne({ email: req.body.email });
-    if (exists) return res.status(400).json({ message: "Doctor already registered" });
 
-    const doctor = new Doctor(req.body);
-    await doctor.save();
-    res.status(201).json({ message: "Doctor registered", doctor });
-  } catch (err) {
-    res.status(500).json({ message: "Error registering doctor", error: err.message });
-  }
-});
 
 app.post("/api/loginDoctor", async (req, res) => {
   const { email, password } = req.body;
