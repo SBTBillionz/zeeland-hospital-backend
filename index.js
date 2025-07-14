@@ -5,91 +5,150 @@ require("dotenv").config();
 
 const app = express();
 
-// ✅ Allow all CORS (any origin, any method)
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
+app.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"] }));
+app.use(express.json());
 
-app.use(express.json()); // to parse JSON bodies
-
+// ✅ DB Connection
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 }).then(() => {
   console.log("✅ MongoDB Connected");
-
-  // ✅ Start server only after DB connection
   const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-  });
+  app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 }).catch(err => {
   console.error("❌ MongoDB Connection Failed:", err.message);
-  process.exit(1); // Exit app if DB fails to connect
+  process.exit(1);
 });
 
-
-// ✅ Define Patient Schema and Model
+// ✅ Patient Model
 const patientSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  surname: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  phone: { type: String, required: true },
-  emergency: { type: String, required: true },
-  password: { type: String, required: true },
-  patientId: { type: String, required: true, unique: true }
+  name: String,
+  surname: String,
+  email: { type: String, unique: true },
+  phone: String,
+  emergency: String,
+  password: String,
+  patientId: { type: String, unique: true }
 }, { timestamps: true });
 
 const Patient = mongoose.model("Patient", patientSchema);
 
-// ✅ Test route
-app.get("/", (req, res) => {
-  console.log("GET / route hit");
-  res.send("🧪 Zeeland Hospital API is running");
-});
+// ✅ Doctor Model
+const doctorSchema = new mongoose.Schema({
+  name: String,
+  email: { type: String, unique: true },
+  password: String
+}, { timestamps: true });
 
-// ✅ Patient Registration Route
+const Doctor = mongoose.model("Doctor", doctorSchema);
+
+// ✅ Message Model
+const messageSchema = new mongoose.Schema({
+  from: String,
+  to: String,
+  message: String
+}, { timestamps: true });
+
+const Message = mongoose.model("Message", messageSchema);
+
+// 🧪 Test Route
+app.get("/", (req, res) => res.send("Zeeland Hospital API running"));
+
+// ✅ PATIENT ROUTES
 app.post("/api/registerPatient", async (req, res) => {
-  console.log("POST /api/registerPatient called with body:", req.body);
-
   try {
-    const { name, surname, email, phone, emergency, password, patientId } = req.body;
+    const exists = await Patient.findOne({ $or: [{ email: req.body.email }, { patientId: req.body.patientId }] });
+    if (exists) return res.status(400).json({ message: "Patient already registered" });
 
-    // Validation check
-    if (!name || !surname || !email || !phone || !emergency || !password || !patientId) {
-      console.warn("❗ Missing fields in request");
-      return res.status(400).json({ message: "All fields are required" });
-    }
-
-    // Check if patient already exists
-    const existing = await Patient.findOne({ $or: [{ email }, { patientId }] });
-    if (existing) {
-      console.warn("⚠️ Duplicate patient registration attempt");
-      return res.status(400).json({ message: "Patient already registered" });
-    }
-
-    // Save new patient
-    const newPatient = new Patient({ name, surname, email, phone, emergency, password, patientId });
-    await newPatient.save();
-
-    console.log("✅ Patient registered:", newPatient);
-    res.status(201).json({ message: "✅ Patient registered successfully", patient: newPatient });
-  } catch (error) {
-    console.error("❌ Registration Error:", error.message);
-    res.status(500).json({ message: "Server error", error: error.message });
+    const patient = new Patient(req.body);
+    await patient.save();
+    res.status(201).json({ message: "Patient registered", patient });
+  } catch (err) {
+    res.status(500).json({ message: "Error registering patient", error: err.message });
   }
 });
 
-// Placeholder: Doctor Login Route
-app.post("/api/loginDoctor", (req, res) => {
-  console.log("POST /api/loginDoctor hit - not yet implemented");
-  res.status(501).json({ message: "Login route not implemented yet" });
+app.post("/api/loginPatient", async (req, res) => {
+  const { email, password, patientId } = req.body;
+  const patient = await Patient.findOne({
+    $or: [{ email }, { patientId }],
+    password
+  });
+
+  if (patient) {
+    res.json({ message: "Login successful", patientId: patient.patientId });
+  } else {
+    res.status(401).json({ message: "Invalid credentials" });
+  }
 });
 
-// ✅ Start server
-// const PORT = process.env.PORT || 3000;
-// app.listen(PORT, () => {
-//   console.log(`🚀 Server running on port ${PORT}`);
-// }); 
+app.get("/api/patients", async (req, res) => {
+  const patients = await Patient.find();
+  res.json(patients);
+});
+
+// ✅ DOCTOR ROUTES
+app.post("/api/registerDoctor", async (req, res) => {
+  try {
+    const exists = await Doctor.findOne({ email: req.body.email });
+    if (exists) return res.status(400).json({ message: "Doctor already registered" });
+
+    const doctor = new Doctor(req.body);
+    await doctor.save();
+    res.status(201).json({ message: "Doctor registered", doctor });
+  } catch (err) {
+    res.status(500).json({ message: "Error registering doctor", error: err.message });
+  }
+});
+
+app.post("/api/loginDoctor", async (req, res) => {
+  const { email, password } = req.body;
+  const doctor = await Doctor.findOne({ email, password });
+
+  if (doctor) {
+    res.json({ message: "Login successful", doctorEmail: doctor.email });
+  } else {
+    res.status(401).json({ message: "Invalid credentials" });
+  }
+});
+
+// ✅ MESSAGING / COMPLAINT SYSTEM
+app.post("/api/messages", async (req, res) => {
+  try {
+    const newMsg = new Message(req.body);
+    await newMsg.save();
+    res.status(201).json({ message: "Message sent", data: newMsg });
+  } catch (err) {
+    res.status(500).json({ message: "Error sending message", error: err.message });
+  }
+});
+
+app.get("/api/messages", async (req, res) => {
+  const { patientId } = req.query;
+  if (!patientId) return res.status(400).json({ message: "Missing patientId" });
+
+  const messages = await Message.find({
+    $or: [{ from: patientId }, { to: patientId }]
+  }).sort({ createdAt: 1 });
+
+  res.json(messages);
+});
+
+app.put("/api/messages/:id", async (req, res) => {
+  try {
+    const updated = await Message.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to update message", error: err.message });
+  }
+});
+
+app.delete("/api/messages/:id", async (req, res) => {
+  try {
+    await Message.findByIdAndDelete(req.params.id);
+    res.json({ message: "Message deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to delete message", error: err.message });
+  }
+});
