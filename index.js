@@ -46,17 +46,22 @@ const doctorSchema = new mongoose.Schema({
 
 const Doctor = mongoose.model("Doctor", doctorSchema);
 
-// ✅ Message Model
+// ✅ Message Model (supports file/image, typing, read receipts)
 const messageSchema = new mongoose.Schema({
   from: String,
   to: String,
-  message: String
+  message: String,
+  fileUrl: String,    // optional (images/files)
+  isRead: { type: Boolean, default: false }
 }, { timestamps: true });
 
 const Message = mongoose.model("Message", messageSchema);
 
+// ✅ Typing status
+let typingStatus = {}; // { patientId: "typing...", doctorEmail: "typing..." }
+
 // 🧪 Test Route
-app.get("/", (req, res) => res.send("Zeeland Hospital API running"));
+app.get("/", (req, res) => res.send("FCTA General Hospital API running 🚀"));
 
 // ✅ PATIENT ROUTES
 app.post("/api/registerPatient", async (req, res) => {
@@ -91,7 +96,17 @@ app.get("/api/patients", async (req, res) => {
   res.json(patients);
 });
 
-// ✅ Doctor Registration
+// ✅ ADMIN LOGIN (only admin can add doctors)
+app.post("/api/adminLogin", (req, res) => {
+  const { username, password } = req.body;
+  if (username === "Drpaau001" && password === "Paau001") {
+    return res.json({ message: "Admin login successful" });
+  } else {
+    return res.status(401).json({ message: "Invalid admin credentials" });
+  }
+});
+
+// ✅ Doctor Registration (Admin only)
 app.post("/api/registerDoctor", async (req, res) => {
   const { name, email, password } = req.body;
 
@@ -115,10 +130,7 @@ app.post("/api/registerDoctor", async (req, res) => {
   }
 });
 
-
-// ✅ DOCTOR ROUTES
-
-
+// ✅ Doctor Login
 app.post("/api/loginDoctor", async (req, res) => {
   const { email, password } = req.body;
   const doctor = await Doctor.findOne({ email, password });
@@ -130,7 +142,7 @@ app.post("/api/loginDoctor", async (req, res) => {
   }
 });
 
-// ✅ MESSAGING / COMPLAINT SYSTEM
+// ✅ MESSAGING / CHAT ROUTES
 app.post("/api/messages", async (req, res) => {
   try {
     const newMsg = new Message(req.body);
@@ -152,6 +164,29 @@ app.get("/api/messages", async (req, res) => {
   res.json(messages);
 });
 
+// ✅ Mark message as read
+app.put("/api/messages/:id/read", async (req, res) => {
+  try {
+    const updated = await Message.findByIdAndUpdate(req.params.id, { isRead: true }, { new: true });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to mark as read", error: err.message });
+  }
+});
+
+// ✅ Typing Indicator
+app.post("/api/typing", (req, res) => {
+  const { user, isTyping } = req.body;
+  typingStatus[user] = isTyping;
+  res.json({ message: "Typing status updated" });
+});
+
+app.get("/api/typing/:user", (req, res) => {
+  const user = req.params.user;
+  res.json({ typing: typingStatus[user] || false });
+});
+
+// ✅ Update/Delete Messages
 app.put("/api/messages/:id", async (req, res) => {
   try {
     const updated = await Message.findByIdAndUpdate(req.params.id, req.body, { new: true });
