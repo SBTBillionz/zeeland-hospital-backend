@@ -11,7 +11,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// ✅ DB Connection
+// ✅ Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -24,7 +24,9 @@ mongoose.connect(process.env.MONGODB_URI, {
   process.exit(1);
 });
 
-// ✅ Patient Model
+// ✅ SCHEMAS AND MODELS
+
+// Patient Model
 const patientSchema = new mongoose.Schema({
   name: String,
   surname: String,
@@ -37,7 +39,7 @@ const patientSchema = new mongoose.Schema({
 
 const Patient = mongoose.model("Patient", patientSchema);
 
-// ✅ Doctor Model
+// Doctor Model
 const doctorSchema = new mongoose.Schema({
   name: String,
   email: { type: String, unique: true },
@@ -46,37 +48,42 @@ const doctorSchema = new mongoose.Schema({
 
 const Doctor = mongoose.model("Doctor", doctorSchema);
 
-// ✅ Message Model (supports file/image, typing, read receipts)
+// Message Model
 const messageSchema = new mongoose.Schema({
   from: String,
   to: String,
   message: String,
-  fileUrl: String,    // optional (images/files)
+  fileUrl: String,         // optional file/image
   isRead: { type: Boolean, default: false }
 }, { timestamps: true });
 
 const Message = mongoose.model("Message", messageSchema);
 
-// ✅ Typing status
-let typingStatus = {}; // { patientId: "typing...", doctorEmail: "typing..." }
+// Typing Status (temporary memory)
+let typingStatus = {}; // { userId: true/false }
 
-// 🧪 Test Route
-app.get("/", (req, res) => res.send("FCTA General Hospital API running 🚀"));
+// ✅ TEST ROUTE
+app.get("/", (req, res) => res.send("🏥 FCTA General Hospital API running 🚀"));
 
 // ✅ PATIENT ROUTES
+
+// Register new patient
 app.post("/api/registerPatient", async (req, res) => {
   try {
-    const exists = await Patient.findOne({ $or: [{ email: req.body.email }, { patientId: req.body.patientId }] });
+    const exists = await Patient.findOne({
+      $or: [{ email: req.body.email }, { patientId: req.body.patientId }]
+    });
     if (exists) return res.status(400).json({ message: "Patient already registered" });
 
     const patient = new Patient(req.body);
     await patient.save();
-    res.status(201).json({ message: "Patient registered", patient });
+    res.status(201).json({ message: "Patient registered successfully", patient });
   } catch (err) {
     res.status(500).json({ message: "Error registering patient", error: err.message });
   }
 });
 
+// Patient login
 app.post("/api/loginPatient", async (req, res) => {
   const { email, password, patientId } = req.body;
   const patient = await Patient.findOne({
@@ -91,12 +98,19 @@ app.post("/api/loginPatient", async (req, res) => {
   }
 });
 
+// Get all patients (for Doctor/Admin)
 app.get("/api/patients", async (req, res) => {
-  const patients = await Patient.find();
-  res.json(patients);
+  try {
+    const patients = await Patient.find();
+    res.json(patients);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch patients", error: err.message });
+  }
 });
 
-// ✅ ADMIN LOGIN (only admin can add doctors)
+// ✅ ADMIN ROUTES
+
+// Admin login (fixed credentials)
 app.post("/api/adminLogin", (req, res) => {
   const { username, password } = req.body;
   if (username === "Drpaau001" && password === "Paau001") {
@@ -106,35 +120,31 @@ app.post("/api/adminLogin", (req, res) => {
   }
 });
 
-// ✅ Doctor Registration (Admin only)
+// ✅ DOCTOR ROUTES
+
+// Register doctor (Admin only)
 app.post("/api/registerDoctor", async (req, res) => {
   const { name, email, password } = req.body;
-
-  if (!name || !email || !password) {
+  if (!name || !email || !password)
     return res.status(400).json({ message: "All fields are required" });
-  }
 
   try {
     const exists = await Doctor.findOne({ email });
-    if (exists) {
+    if (exists)
       return res.status(400).json({ message: "Doctor already registered" });
-    }
 
     const doctor = new Doctor({ name, email, password });
     await doctor.save();
-
-    res.status(201).json({ message: "Doctor registered", doctorEmail: doctor.email });
+    res.status(201).json({ message: "Doctor registered successfully", doctorEmail: doctor.email });
   } catch (err) {
-    console.error("❌ Doctor registration error:", err.message);
-    res.status(500).json({ message: "Server error", error: err.message });
+    res.status(500).json({ message: "Error registering doctor", error: err.message });
   }
 });
 
-// ✅ Doctor Login
+// Doctor login
 app.post("/api/loginDoctor", async (req, res) => {
   const { email, password } = req.body;
   const doctor = await Doctor.findOne({ email, password });
-
   if (doctor) {
     res.json({ message: "Login successful", doctorEmail: doctor.email });
   } else {
@@ -142,7 +152,18 @@ app.post("/api/loginDoctor", async (req, res) => {
   }
 });
 
-// ✅ MESSAGING / CHAT ROUTES
+// Get all registered doctors
+app.get("/api/doctors", async (req, res) => {
+  try {
+    const doctors = await Doctor.find();
+    res.json(doctors);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch doctors", error: err.message });
+  }
+});
+
+// ✅ MESSAGING SYSTEM (Patients ↔ Doctors)
+
 app.post("/api/messages", async (req, res) => {
   try {
     const newMsg = new Message(req.body);
@@ -157,36 +178,18 @@ app.get("/api/messages", async (req, res) => {
   const { patientId } = req.query;
   if (!patientId) return res.status(400).json({ message: "Missing patientId" });
 
-  const messages = await Message.find({
-    $or: [{ from: patientId }, { to: patientId }]
-  }).sort({ createdAt: 1 });
-
-  res.json(messages);
-});
-
-// ✅ Mark message as read
-app.put("/api/messages/:id/read", async (req, res) => {
   try {
-    const updated = await Message.findByIdAndUpdate(req.params.id, { isRead: true }, { new: true });
-    res.json(updated);
+    const messages = await Message.find({
+      $or: [{ from: patientId }, { to: patientId }]
+    }).sort({ createdAt: 1 });
+    res.json(messages);
   } catch (err) {
-    res.status(500).json({ message: "Failed to mark as read", error: err.message });
+    res.status(500).json({ message: "Error fetching messages", error: err.message });
   }
 });
 
-// ✅ Typing Indicator
-app.post("/api/typing", (req, res) => {
-  const { user, isTyping } = req.body;
-  typingStatus[user] = isTyping;
-  res.json({ message: "Typing status updated" });
-});
+// ✅ Update / Delete / Read message
 
-app.get("/api/typing/:user", (req, res) => {
-  const user = req.params.user;
-  res.json({ typing: typingStatus[user] || false });
-});
-
-// ✅ Update/Delete Messages
 app.put("/api/messages/:id", async (req, res) => {
   try {
     const updated = await Message.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -203,4 +206,26 @@ app.delete("/api/messages/:id", async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: "Failed to delete message", error: err.message });
   }
+});
+
+// ✅ Mark message as read
+app.put("/api/messages/:id/read", async (req, res) => {
+  try {
+    const updated = await Message.findByIdAndUpdate(req.params.id, { isRead: true }, { new: true });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to mark as read", error: err.message });
+  }
+});
+
+// ✅ Typing status (temporary)
+app.post("/api/typing", (req, res) => {
+  const { user, isTyping } = req.body;
+  typingStatus[user] = isTyping;
+  res.json({ message: "Typing status updated" });
+});
+
+app.get("/api/typing/:user", (req, res) => {
+  const user = req.params.user;
+  res.json({ typing: typingStatus[user] || false });
 });
