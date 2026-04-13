@@ -1,36 +1,55 @@
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
+const multer = require("multer");
+const path = require("path");
 require("dotenv").config();
 
 const app = express();
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
-app.use(express.json());
 
-// ✅ Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-}).then(() => {
-  console.log("✅ MongoDB Connected");
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
-}).catch(err => {
-  console.error("❌ MongoDB Connection Failed:", err.message);
-  process.exit(1);
+app.use(cors());
+app.use(express.json());
+app.use("/uploads", express.static("uploads"));
+
+
+// =========================
+// 📦 FILE UPLOAD SETUP
+// =========================
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads/");
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + path.extname(file.originalname));
+  }
 });
 
-// ✅ SCHEMAS AND MODELS
+const upload = multer({ storage });
 
-// Patient Model
+
+// =========================
+// 🔗 DATABASE
+// =========================
+mongoose.connect(process.env.MONGODB_URI)
+.then(() => console.log("✅ MongoDB Connected"))
+.catch(err => console.log("❌ DB Error:", err));
+
+
+// =========================
+// 👨‍⚕️ ONLINE USERS TRACKING
+// =========================
+let onlineUsers = {};
+
+
+// =========================
+// 📊 MODELS
+// =========================
+
+// PATIENT
 const patientSchema = new mongoose.Schema({
   name: String,
   surname: String,
-  email: { type: String, unique: true },
+  email: String,
   phone: String,
   emergency: String,
   password: String,
@@ -39,193 +58,232 @@ const patientSchema = new mongoose.Schema({
 
 const Patient = mongoose.model("Patient", patientSchema);
 
-// Doctor Model
+
+// DOCTOR (UPDATED)
 const doctorSchema = new mongoose.Schema({
   name: String,
   email: { type: String, unique: true },
-  password: String
+  password: String,
+  specialty: String
 }, { timestamps: true });
 
 const Doctor = mongoose.model("Doctor", doctorSchema);
 
-// Message Model
+
+// MESSAGE (UPDATED)
 const messageSchema = new mongoose.Schema({
   from: String,
   to: String,
   message: String,
-  fileUrl: String,         // optional file/image
+  specialty: String,
+  fileUrl: String,
   isRead: { type: Boolean, default: false }
 }, { timestamps: true });
 
 const Message = mongoose.model("Message", messageSchema);
 
-// Typing Status (temporary memory)
-let typingStatus = {}; // { userId: true/false }
 
-// ✅ TEST ROUTE
-app.get("/", (req, res) => res.send("🏥 FCTA General Hospital API running 🚀"));
+// RECORDS
+const recordSchema = new mongoose.Schema({
+  doctor: String,
+  patientId: String,
+  record: String
+}, { timestamps: true });
 
-// ✅ PATIENT ROUTES
+const Record = mongoose.model("Record", recordSchema);
 
-// Register new patient
+
+// =========================
+// 🧑‍⚕️ ADMIN LOGIN
+// =========================
+app.post("/api/adminLogin", (req, res) => {
+  const { username, password } = req.body;
+
+  if (username === "23cs@gmail.com" && password === "23cs1029") {
+    return res.json({ message: "Admin login success" });
+  }
+
+  res.status(401).json({ message: "Invalid admin credentials" });
+});
+
+
+// =========================
+// 🧑 PATIENT ROUTES
+// =========================
 app.post("/api/registerPatient", async (req, res) => {
   try {
     const exists = await Patient.findOne({
       $or: [{ email: req.body.email }, { patientId: req.body.patientId }]
     });
-    if (exists) return res.status(400).json({ message: "Patient already registered" });
+
+    if (exists) return res.status(400).json({ message: "Patient exists" });
 
     const patient = new Patient(req.body);
     await patient.save();
-    res.status(201).json({ message: "Patient registered successfully", patient });
+
+    res.json({ message: "Registered", patientId: patient.patientId });
+
   } catch (err) {
-    res.status(500).json({ message: "Error registering patient", error: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
-// Patient login
+
+// LOGIN PATIENT
 app.post("/api/loginPatient", async (req, res) => {
-  const { email, password, patientId } = req.body;
-  const patient = await Patient.findOne({
-    $or: [{ email }, { patientId }],
-    password
-  });
+  const { patientId, password } = req.body;
 
-  if (patient) {
-    res.json({ message: "Login successful", patientId: patient.patientId });
-  } else {
-    res.status(401).json({ message: "Invalid credentials" });
-  }
+  const user = await Patient.findOne({ patientId, password });
+
+  if (!user) return res.status(401).json({ error: "Invalid login" });
+
+  onlineUsers[user.patientId] = true;
+
+  res.json({ patientId: user.patientId });
 });
 
-// Get all patients (for Doctor/Admin)
+
+// GET PATIENTS
 app.get("/api/patients", async (req, res) => {
-  try {
-    const patients = await Patient.find();
-    res.json(patients);
-  } catch (err) {
-    res.status(500).json({ message: "Failed to fetch patients", error: err.message });
-  }
+  const data = await Patient.find();
+  res.json(data);
 });
 
-// ✅ ADMIN ROUTES
 
-// Admin login (fixed credentials)
-app.post("/api/adminLogin", (req, res) => {
-  const { username, password } = req.body;
-  if (username === "Drpaau001" && password === "Paau001") {
-    return res.json({ message: "Admin login successful" });
-  } else {
-    return res.status(401).json({ message: "Invalid admin credentials" });
-  }
-});
+// =========================
+// 👨‍⚕️ DOCTOR ROUTES
+// =========================
 
-// ✅ DOCTOR ROUTES
-
-// Register doctor (Admin only)
+// REGISTER DOCTOR
 app.post("/api/registerDoctor", async (req, res) => {
-  const { name, email, password } = req.body;
-  if (!name || !email || !password)
-    return res.status(400).json({ message: "All fields are required" });
-
   try {
-    const exists = await Doctor.findOne({ email });
-    if (exists)
-      return res.status(400).json({ message: "Doctor already registered" });
+    const exists = await Doctor.findOne({ email: req.body.email });
+    if (exists) return res.status(400).json({ message: "Doctor exists" });
 
-    const doctor = new Doctor({ name, email, password });
+    const doctor = new Doctor(req.body);
     await doctor.save();
-    res.status(201).json({ message: "Doctor registered successfully", doctorEmail: doctor.email });
+
+    res.json({ message: "Doctor registered" });
+
   } catch (err) {
-    res.status(500).json({ message: "Error registering doctor", error: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
-// Doctor login
+
+// LOGIN DOCTOR
 app.post("/api/loginDoctor", async (req, res) => {
   const { email, password } = req.body;
+
   const doctor = await Doctor.findOne({ email, password });
-  if (doctor) {
-    res.json({ message: "Login successful", doctorEmail: doctor.email });
-  } else {
-    res.status(401).json({ message: "Invalid credentials" });
-  }
+
+  if (!doctor) return res.status(401).json({ error: "Invalid login" });
+
+  onlineUsers[email] = true;
+
+  res.json({
+    doctorEmail: doctor.email,
+    specialty: doctor.specialty
+  });
 });
 
-// Get all registered doctors
+
+// GET DOCTORS
 app.get("/api/doctors", async (req, res) => {
+  const doctors = await Doctor.find();
+  res.json(doctors);
+});
+
+
+// GET BY SPECIALTY
+app.get("/api/doctors/:specialty", async (req, res) => {
+  const doctors = await Doctor.find({ specialty: req.params.specialty });
+  res.json(doctors);
+});
+
+
+// =========================
+// 💬 MESSAGE ROUTES (WITH FILE)
+// =========================
+app.post("/api/messages", upload.single("file"), async (req, res) => {
   try {
-    const doctors = await Doctor.find();
-    res.json(doctors);
+    const msg = new Message({
+      from: req.body.from,
+      to: req.body.to,
+      message: req.body.message,
+      specialty: req.body.specialty,
+      fileUrl: req.file ? `/uploads/${req.file.filename}` : null
+    });
+
+    await msg.save();
+    res.json({ message: "Message sent" });
+
   } catch (err) {
-    res.status(500).json({ message: "Failed to fetch doctors", error: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
-// ✅ MESSAGING SYSTEM (Patients ↔ Doctors)
 
-app.post("/api/messages", async (req, res) => {
-  try {
-    const newMsg = new Message(req.body);
-    await newMsg.save();
-    res.status(201).json({ message: "Message sent", data: newMsg });
-  } catch (err) {
-    res.status(500).json({ message: "Error sending message", error: err.message });
-  }
-});
-
+// GET MESSAGES
 app.get("/api/messages", async (req, res) => {
-  const { patientId } = req.query;
-  if (!patientId) return res.status(400).json({ message: "Missing patientId" });
+  const { patientId, specialty } = req.query;
 
   try {
     const messages = await Message.find({
-      $or: [{ from: patientId }, { to: patientId }]
+      $or: [{ from: patientId }, { to: patientId }],
+      ...(specialty && { specialty })
     }).sort({ createdAt: 1 });
+
     res.json(messages);
+
   } catch (err) {
-    res.status(500).json({ message: "Error fetching messages", error: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
-// ✅ Update / Delete / Read message
 
-app.put("/api/messages/:id", async (req, res) => {
+// =========================
+// 📁 RECORDS
+// =========================
+app.post("/api/records", async (req, res) => {
   try {
-    const updated = await Message.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    res.json(updated);
+    const record = new Record(req.body);
+    await record.save();
+
+    res.json({ message: "Record saved" });
+
   } catch (err) {
-    res.status(500).json({ message: "Failed to update message", error: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
-app.delete("/api/messages/:id", async (req, res) => {
-  try {
-    await Message.findByIdAndDelete(req.params.id);
-    res.json({ message: "Message deleted" });
-  } catch (err) {
-    res.status(500).json({ message: "Failed to delete message", error: err.message });
-  }
+app.get("/api/records", async (req, res) => {
+  const data = await Record.find();
+  res.json(data);
 });
 
-// ✅ Mark message as read
-app.put("/api/messages/:id/read", async (req, res) => {
-  try {
-    const updated = await Message.findByIdAndUpdate(req.params.id, { isRead: true }, { new: true });
-    res.json(updated);
-  } catch (err) {
-    res.status(500).json({ message: "Failed to mark as read", error: err.message });
-  }
-});
 
-// ✅ Typing status (temporary)
-app.post("/api/typing", (req, res) => {
-  const { user, isTyping } = req.body;
-  typingStatus[user] = isTyping;
-  res.json({ message: "Typing status updated" });
-});
-
-app.get("/api/typing/:user", (req, res) => {
+// =========================
+// 📡 ONLINE STATUS
+// =========================
+app.get("/api/status/:user", (req, res) => {
   const user = req.params.user;
-  res.json({ typing: typingStatus[user] || false });
+
+  res.json({
+    online: !!onlineUsers[user]
+  });
+});
+
+app.post("/api/logout", (req, res) => {
+  const { user } = req.body;
+  delete onlineUsers[user];
+  res.json({ message: "Logged out" });
+});
+
+
+// =========================
+// 🏠 HOME
+// =========================
+app.get("/", (req, res) => {
+  res.send("🏥 Hospital API Running...");
 });
