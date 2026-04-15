@@ -30,7 +30,12 @@ const upload = multer({ storage });
 // =========================
 // 🔗 DATABASE
 // =========================
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect("mongodb+srv://23cs1029:23cs1029p@cluster19220.jvummtr.mongodb.net/hospitalDB?retryWrites=true&w=majority", {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log("✅ MongoDB Connected"))
+.catch(err => console.log("❌ DB Error:", err));
 .then(() => console.log("✅ MongoDB Connected"))
 .catch(err => console.log("❌ DB Error:", err));
 
