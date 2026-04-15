@@ -30,12 +30,13 @@ const upload = multer({ storage });
 // =========================
 // 🔗 DATABASE
 // =========================
-mongoose.connect("mongodb+srv://23cs1029:23cs1029p@cluster19220.jvummtr.mongodb.net/hospitalDB?retryWrites=true&w=majority", {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log("✅ MongoDB Connected"))
-.catch(err => console.log("❌ DB Error:", err));
+mongoose.connect(
+  "mongodb+srv://23cs1029:23cs1029p@cluster19220.jvummtr.mongodb.net/hospitalDB?retryWrites=true&w=majority",
+  {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  }
+)
 .then(() => console.log("✅ MongoDB Connected"))
 .catch(err => console.log("❌ DB Error:", err));
 
@@ -291,4 +292,12 @@ app.post("/api/logout", (req, res) => {
 // =========================
 app.get("/", (req, res) => {
   res.send("🏥 Hospital API Running...");
+});
+// =========================
+// 🚀 START SERVER
+// =========================
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log("🚀 Server running on port", PORT);
 });
