@@ -163,10 +163,16 @@ app.get("/api/patients", async (req, res) => {
 // REGISTER DOCTOR
 app.post("/api/registerDoctor", async (req, res) => {
   try {
-    const exists = await Doctor.findOne({ email: req.body.email });
+    const { name, email, password, specialty } = req.body;
+
+    if (!name || !email || !password || !specialty) {
+      return res.status(400).json({ message: "All fields required" });
+    }
+
+    const exists = await Doctor.findOne({ email });
     if (exists) return res.status(400).json({ message: "Doctor exists" });
 
-    const doctor = new Doctor(req.body);
+    const doctor = new Doctor({ name, email, password, specialty });
     await doctor.save();
 
     res.json({ message: "Doctor registered" });
@@ -175,7 +181,6 @@ app.post("/api/registerDoctor", async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
 
 // LOGIN DOCTOR
 app.post("/api/loginDoctor", async (req, res) => {
