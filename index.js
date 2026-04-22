@@ -306,3 +306,20 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
 });
+
+// ==================
+// New route
+app.post("/api/messages/read", async (req, res) => {
+  const { from, to } = req.body;
+
+  try {
+    await Message.updateMany(
+      { from, to, isRead: false },
+      { $set: { isRead: true } }
+    );
+
+    res.json({ message: "Messages marked as read" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
