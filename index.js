@@ -3,7 +3,6 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const multer = require("multer");
 const path = require("path");
-require("dotenv").config();
 
 const app = express();
 
@@ -31,18 +30,14 @@ const upload = multer({ storage });
 // 🔗 DATABASE
 // =========================
 mongoose.connect(
-  "mongodb+srv://23cs1029:23cs1029p@cluster19220.jvummtr.mongodb.net/hospitalDB?retryWrites=true&w=majority",
-  {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  }
+  "mongodb+srv://23cs1029:23cs1029p@cluster19220.jvummtr.mongodb.net/hospitalDB?retryWrites=true&w=majority"
 )
 .then(() => console.log("✅ MongoDB Connected"))
 .catch(err => console.log("❌ DB Error:", err));
 
 
 // =========================
-// 👨‍⚕️ ONLINE USERS TRACKING
+// 👨‍⚕️ ONLINE USERS
 // =========================
 let onlineUsers = {};
 
@@ -52,7 +47,7 @@ let onlineUsers = {};
 // =========================
 
 // PATIENT
-const patientSchema = new mongoose.Schema({
+const Patient = mongoose.model("Patient", new mongoose.Schema({
   name: String,
   surname: String,
   email: String,
@@ -60,43 +55,31 @@ const patientSchema = new mongoose.Schema({
   emergency: String,
   password: String,
   patientId: { type: String, unique: true }
-}, { timestamps: true });
+}, { timestamps: true }));
 
-const Patient = mongoose.model("Patient", patientSchema);
-
-
-// DOCTOR (UPDATED)
-const doctorSchema = new mongoose.Schema({
+// DOCTOR
+const Doctor = mongoose.model("Doctor", new mongoose.Schema({
   name: String,
   email: { type: String, unique: true },
   password: String,
   specialty: String
-}, { timestamps: true });
+}, { timestamps: true }));
 
-const Doctor = mongoose.model("Doctor", doctorSchema);
-
-
-// MESSAGE (UPDATED)
-const messageSchema = new mongoose.Schema({
+// MESSAGE
+const Message = mongoose.model("Message", new mongoose.Schema({
   from: String,
   to: String,
   message: String,
-  specialty: String,
   fileUrl: String,
   isRead: { type: Boolean, default: false }
-}, { timestamps: true });
+}, { timestamps: true }));
 
-const Message = mongoose.model("Message", messageSchema);
-
-
-// RECORDS
-const recordSchema = new mongoose.Schema({
+// RECORD
+const Record = mongoose.model("Record", new mongoose.Schema({
   doctor: String,
   patientId: String,
   record: String
-}, { timestamps: true });
-
-const Record = mongoose.model("Record", recordSchema);
+}, { timestamps: true }));
 
 
 // =========================
@@ -116,6 +99,8 @@ app.post("/api/adminLogin", (req, res) => {
 // =========================
 // 🧑 PATIENT ROUTES
 // =========================
+
+// REGISTER
 app.post("/api/registerPatient", async (req, res) => {
   try {
     const exists = await Patient.findOne({
@@ -134,8 +119,7 @@ app.post("/api/registerPatient", async (req, res) => {
   }
 });
 
-
-// LOGIN PATIENT
+// LOGIN
 app.post("/api/loginPatient", async (req, res) => {
   const { patientId, password } = req.body;
 
@@ -148,7 +132,6 @@ app.post("/api/loginPatient", async (req, res) => {
   res.json({ patientId: user.patientId });
 });
 
-
 // GET PATIENTS
 app.get("/api/patients", async (req, res) => {
   const data = await Patient.find();
@@ -160,7 +143,7 @@ app.get("/api/patients", async (req, res) => {
 // 👨‍⚕️ DOCTOR ROUTES
 // =========================
 
-// REGISTER DOCTOR
+// REGISTER
 app.post("/api/registerDoctor", async (req, res) => {
   try {
     const { name, email, password, specialty } = req.body;
@@ -172,7 +155,13 @@ app.post("/api/registerDoctor", async (req, res) => {
     const exists = await Doctor.findOne({ email });
     if (exists) return res.status(400).json({ message: "Doctor exists" });
 
-    const doctor = new Doctor({ name, email, password, specialty });
+    const doctor = new Doctor({
+      name,
+      email,
+      password,
+      specialty: specialty.toLowerCase()
+    });
+
     await doctor.save();
 
     res.json({ message: "Doctor registered" });
@@ -182,7 +171,7 @@ app.post("/api/registerDoctor", async (req, res) => {
   }
 });
 
-// LOGIN DOCTOR
+// LOGIN
 app.post("/api/loginDoctor", async (req, res) => {
   const { email, password } = req.body;
 
@@ -198,31 +187,36 @@ app.post("/api/loginDoctor", async (req, res) => {
   });
 });
 
-
-// GET DOCTORS
+// GET ALL
 app.get("/api/doctors", async (req, res) => {
   const doctors = await Doctor.find();
   res.json(doctors);
 });
 
-
 // GET BY SPECIALTY
 app.get("/api/doctors/:specialty", async (req, res) => {
-  const doctors = await Doctor.find({ specialty: req.params.specialty });
+  const doctors = await Doctor.find({
+    specialty: req.params.specialty.toLowerCase()
+  });
   res.json(doctors);
 });
 
 
 // =========================
-// 💬 MESSAGE ROUTES (WITH FILE)
+// 💬 MESSAGE ROUTES
 // =========================
+
+// SEND MESSAGE
 app.post("/api/messages", upload.single("file"), async (req, res) => {
   try {
+    if (!req.body.message && !req.file) {
+      return res.status(400).json({ message: "Message or file required" });
+    }
+
     const msg = new Message({
       from: req.body.from,
       to: req.body.to,
       message: req.body.message,
-      specialty: req.body.specialty,
       fileUrl: req.file ? `/uploads/${req.file.filename}` : null
     });
 
@@ -234,21 +228,39 @@ app.post("/api/messages", upload.single("file"), async (req, res) => {
   }
 });
 
-
-// GET MESSAGES
+// ✅ FIXED CHAT (IMPORTANT)
 app.get("/api/messages", async (req, res) => {
-  const { patientId, specialty } = req.query;
+  const { user1, user2 } = req.query;
 
   try {
     const messages = await Message.find({
-      $or: [{ from: patientId }, { to: patientId }],
-      ...(specialty && { specialty })
+      $or: [
+        { from: user1, to: user2 },
+        { from: user2, to: user1 }
+      ]
     }).sort({ createdAt: 1 });
 
     res.json(messages);
 
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+// ✅ READ RECEIPT
+app.post("/api/messages/read", async (req, res) => {
+  const { from, to } = req.body;
+
+  try {
+    await Message.updateMany(
+      { from, to, isRead: false },
+      { $set: { isRead: true } }
+    );
+
+    res.json({ message: "Messages marked as read" });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -278,16 +290,11 @@ app.get("/api/records", async (req, res) => {
 // 📡 ONLINE STATUS
 // =========================
 app.get("/api/status/:user", (req, res) => {
-  const user = req.params.user;
-
-  res.json({
-    online: !!onlineUsers[user]
-  });
+  res.json({ online: !!onlineUsers[req.params.user] });
 });
 
 app.post("/api/logout", (req, res) => {
-  const { user } = req.body;
-  delete onlineUsers[user];
+  delete onlineUsers[req.body.user];
   res.json({ message: "Logged out" });
 });
 
@@ -298,6 +305,8 @@ app.post("/api/logout", (req, res) => {
 app.get("/", (req, res) => {
   res.send("🏥 Hospital API Running...");
 });
+
+
 // =========================
 // 🚀 START SERVER
 // =========================
@@ -305,21 +314,4 @@ const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
-});
-
-// ==================
-// New route
-app.post("/api/messages/read", async (req, res) => {
-  const { from, to } = req.body;
-
-  try {
-    await Message.updateMany(
-      { from, to, isRead: false },
-      { $set: { isRead: true } }
-    );
-
-    res.json({ message: "Messages marked as read" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
 });
