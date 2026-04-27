@@ -15,12 +15,9 @@ app.use("/uploads", express.static("uploads"));
 // 📦 FILE UPLOAD SETUP
 // =========================
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
+  destination: (req, file, cb) => cb(null, "uploads/"),
+  filename: (req, file, cb) =>
+    cb(null, Date.now() + path.extname(file.originalname))
 });
 
 const upload = multer({ storage });
@@ -112,6 +109,8 @@ app.post("/api/registerPatient", async (req, res) => {
     const patient = new Patient(req.body);
     await patient.save();
 
+    console.log("New patient:", patient.patientId);
+
     res.json({ message: "Registered", patientId: patient.patientId });
 
   } catch (err) {
@@ -159,10 +158,12 @@ app.post("/api/registerDoctor", async (req, res) => {
       name,
       email,
       password,
-      specialty: specialty.toLowerCase()
+      specialty: specialty.trim().toLowerCase()
     });
 
     await doctor.save();
+
+    console.log("Doctor registered:", email);
 
     res.json({ message: "Doctor registered" });
 
@@ -195,10 +196,18 @@ app.get("/api/doctors", async (req, res) => {
 
 // GET BY SPECIALTY
 app.get("/api/doctors/:specialty", async (req, res) => {
-  const doctors = await Doctor.find({
-    specialty: req.params.specialty.toLowerCase()
-  });
-  res.json(doctors);
+  try {
+    const specialty = req.params.specialty.trim().toLowerCase();
+
+    console.log("Searching doctors for:", specialty);
+
+    const doctors = await Doctor.find({ specialty });
+
+    res.json(doctors);
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 
@@ -209,28 +218,42 @@ app.get("/api/doctors/:specialty", async (req, res) => {
 // SEND MESSAGE
 app.post("/api/messages", upload.single("file"), async (req, res) => {
   try {
-    if (!req.body.message && !req.file) {
+    const { from, to, message } = req.body;
+
+    if (!from || !to) {
+      return res.status(400).json({ message: "Sender and receiver required" });
+    }
+
+    if (!message && !req.file) {
       return res.status(400).json({ message: "Message or file required" });
     }
 
     const msg = new Message({
-      from: req.body.from,
-      to: req.body.to,
-      message: req.body.message,
+      from,
+      to,
+      message: message || "",
       fileUrl: req.file ? `/uploads/${req.file.filename}` : null
     });
 
     await msg.save();
+
+    console.log(`Message: ${from} → ${to}`);
+
     res.json({ message: "Message sent" });
 
   } catch (err) {
+    console.log("Send error:", err);
     res.status(500).json({ message: err.message });
   }
 });
 
-// ✅ FIXED CHAT (IMPORTANT)
+// GET CHAT (1-to-1)
 app.get("/api/messages", async (req, res) => {
   const { user1, user2 } = req.query;
+
+  if (!user1 || !user2) {
+    return res.json([]);
+  }
 
   try {
     const messages = await Message.find({
@@ -247,7 +270,7 @@ app.get("/api/messages", async (req, res) => {
   }
 });
 
-// ✅ READ RECEIPT
+// READ RECEIPT
 app.post("/api/messages/read", async (req, res) => {
   const { from, to } = req.body;
 
