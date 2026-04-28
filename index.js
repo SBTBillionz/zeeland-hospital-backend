@@ -338,3 +338,12 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
 });
+
+app.delete("/api/doctors/:id", async (req, res) => {
+  try {
+    await Doctor.findByIdAndDelete(req.params.id);
+    res.json({ message: "Doctor deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
